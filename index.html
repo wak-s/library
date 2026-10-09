@@ -134,7 +134,7 @@ body {
 .tag-ai { color: var(--tag-ai); }
 .tag-notion { color: var(--tag-notion); }
 .tag-ops { color: var(--tag-ops); }
-.example-note { margin-top: 14px; font-size: 0.8rem; color: var(--muted); }
+.example-note { padding-block: 18px; font-size: 0.85rem; color: var(--muted); list-style: none; }
 
 @media (max-width: 520px) {
   .row { grid-template-columns: 1fr auto; gap: 4px 12px; }
@@ -210,7 +210,7 @@ body {
 <div class="wrap">
   <header class="top">
     <a class="brand" href="#" id="brand"></a>
-    <button class="btn" id="loginTop" type="button">로그인</button>
+    <button class="btn" id="authBtn" type="button">로그인</button>
   </header>
 
   <!-- 메인 화면 -->
@@ -219,8 +219,7 @@ body {
       <h1 id="headline"></h1>
       <p id="subline"></p>
     </section>
-    <ul class="list" id="list"></ul>
-    <p class="example-note">지금 보이는 글은 화면 확인용 예시예요.</p>
+    <ul class="list" id="list"><li class="example-note">글을 불러오는 중이에요…</li></ul>
   </main>
 
   <!-- 글 화면 -->
@@ -232,19 +231,32 @@ body {
       <span class="date" id="postDate"></span>
     </div>
     <div class="post-body" id="postPreview"></div>
-    <div class="locked">
-      <div class="post-body locked-text" id="postLocked"></div>
-    </div>
-    <div class="gate">
-      <strong>여기부터는 회원 공개예요</strong>
-      <p>구글 계정으로 10초 만에 가입하고 끝까지 읽어 보세요.</p>
-      <button class="btn btn-primary" id="loginGate" type="button">구글로 로그인하고 이어 읽기</button>
+
+    <!-- 로그인한 회원에게 보이는 본문 -->
+    <div class="post-body" id="postFull" hidden></div>
+
+    <!-- 로그인 안 한 사람에게 보이는 잠금 -->
+    <div id="lockArea">
+      <div class="locked">
+        <div class="post-body locked-text" aria-hidden="true">
+          <p>이어지는 내용은 회원에게만 공개돼요. 실제로 써 본 과정과 화면, 바로 따라 할 수 있는 양식까지 담았어요.</p>
+          <p>구글 계정으로 가입하면 모든 글을 끝까지 읽을 수 있어요. 가입은 버튼 한 번이면 끝나요.</p>
+          <p>새 글이 올라오면 목록 맨 위에서 바로 확인할 수 있어요.</p>
+        </div>
+      </div>
+      <div class="gate">
+        <strong>여기부터는 회원 공개예요</strong>
+        <p>구글 계정으로 10초 만에 가입하고 끝까지 읽어 보세요.</p>
+        <button class="btn btn-primary" id="loginGate" type="button">구글로 로그인하고 이어 읽기</button>
+      </div>
     </div>
   </article>
 </div>
 
 <div class="toast" id="toast" role="status" hidden></div>
 
+<!-- Supabase 도구 불러오기 (회원 관리·글 보관함과 대화하는 통로) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ============================================================
    [수정 포인트 C] 사이트 이름과 소개 문구
@@ -263,112 +275,58 @@ const TAGS = {
 };
 
 /* ============================================================
-   [수정 포인트 D] 글 목록 — 글 하나 = { } 묶음 하나
-   preview: 누구나 보는 앞부분 / locked: 로그인해야 보이는 뒷부분
-   새 글을 쓰려면 { } 하나를 복사해서 맨 위에 붙이고 내용만 바꾸면 됨
+   [수정 포인트 D] Supabase 연결 정보
+   - URL: 내 Supabase 프로젝트 주소
+   - KEY: 공개용 열쇠(publishable key). 브라우저에 넣어도 안전한 키
+   ※ 글 내용은 이제 이 파일이 아니라 Supabase의 posts / post_bodies 표에서 관리
    ============================================================ */
-const POSTS = [
-  {
-    id: "drive-kakao",
-    date: "2026.10.09",
-    tag: "AI·자동화",
-    title: "드라이브에 파일이 올라오면 카톡으로 알림 받기 (비전공자 버전)",
-    preview: [
-      "멘토 200명의 자료를 매일 확인하다 보면, 일의 절반은 '올라왔나?' 하고 폴더를 여는 일이 됩니다.",
-      "그래서 반대로 만들었습니다. 내가 폴더를 보러 가는 대신, 폴더가 나에게 알려 주게."
-    ],
-    locked: [
-      "준비물은 구글 드라이브, 카카오톡 나와의 채팅방, 그리고 Claude 하나입니다.",
-      "핵심은 '최근 24시간 안에 새로 생긴 파일'만 골라 세는 것. 학교별 건수만 짧게 보내면 아침에 3초면 확인이 끝납니다.",
-      "아래에서 실제로 쓴 조회 조건과 메시지 형식을 그대로 공개합니다."
-    ]
-  },
-  {
-    id: "notion-one-db",
-    date: "2026.10.06",
-    tag: "노션",
-    title: "PARA 안 쓰고 노션을 DB 하나로 정리한 이유",
-    preview: [
-      "정리법 영상을 보면 다들 폴더를 네 칸으로 나눕니다. 프로젝트, 영역, 자원, 보관.",
-      "따라 해 봤는데, 저한테는 칸이 너무 많았어요. 어디에 넣을지 고민하다 아무 데도 안 넣게 되더라고요."
-    ],
-    locked: [
-      "그래서 칸을 하나로 줄이고, 대신 '유형' 태그를 여러 개 달 수 있게 바꿨습니다.",
-      "자소서는 따로 DB를 만들지 않고 필터 보기 하나로 해결했어요.",
-      "실제 태그 목록과 필터 설정 화면을 공유합니다."
-    ]
-  },
-  {
-    id: "mentor-checklist",
-    date: "2026.10.02",
-    tag: "운영",
-    title: "멘토 178명에게 자료를 빠짐없이 걷는 체크리스트",
-    preview: [
-      "15개 학교, 178명의 멘토. 마감일에 '아직 안 냈어요'가 열 명만 나와도 하루가 사라집니다.",
-      "급한 순서가 아니라 '연락하면 답이 오래 걸릴 사람' 순서로 챙기기 시작하면서 달라졌습니다."
-    ],
-    locked: [
-      "엑셀로 피드백이 많이 필요한 멘토를 먼저 골라내는 기준 세 가지.",
-      "학교·멘토·학생 사이 연락이 꼬이지 않게 만든 체크리스트 양식도 그대로 드립니다."
-    ]
-  },
-  {
-    id: "prompt-material",
-    date: "2026.09.23",
-    tag: "AI·자동화",
-    title: "좋은 프롬프트의 대부분은 지시가 아니라 재료다",
-    preview: [
-      "잘 만든 프롬프트 하나를 열어 봤더니, 지시문은 11줄이고 나머지 655줄은 전부 재료였습니다.",
-      "AI에게 '잘해 줘'라고 쓰는 대신 무엇을 건네줘야 하는지가 보였어요."
-    ],
-    locked: [
-      "역할 → 재료 → 지시 → 확인 순서로 프롬프트를 짜는 방법.",
-      "제가 실제로 쓰는 템플릿을 복사해서 바로 쓸 수 있게 붙여 둡니다."
-    ]
-  },
-  {
-    id: "change-question",
-    date: "2026.09.19",
-    tag: "운영",
-    title: "회의 분위기는 질문 하나로 바뀐다",
-    preview: [
-      "퍼실리테이션을 10년 하면서 배운 건, 좋은 진행은 말을 잘하는 게 아니라 질문을 바꾸는 일이라는 것.",
-      "'의견 있으신가요?'라고 물으면 조용해지는 이유부터 이야기해 볼게요."
-    ],
-    locked: [
-      "침묵을 깨는 질문, 갈등을 낮추는 질문, 결론을 끌어내는 질문.",
-      "상황별로 바로 꺼내 쓸 수 있는 질문 문장 12개를 정리했습니다."
-    ]
-  }
-];
+const SUPABASE_URL = "https://cowrdbhmrsglkgyoqzsx.supabase.co";
+const SUPABASE_KEY = "sb_publishable_OoFaujJQfTbF3zCZTA5Ayg_AHLGZROY";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { flowType: "pkce" }
+});
 
 /* ---------- 아래부터는 화면을 그리는 부분 (평소엔 안 건드려도 됨) ---------- */
 const $ = (id) => document.getElementById(id);
+let POSTS = [];
+let user = null;
 
-function paragraphs(lines) {
-  return lines.map((t) => `<p>${t}</p>`).join("");
-}
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const paragraphs = (lines) => (lines || []).map((t) => `<p>${esc(t)}</p>`).join("");
 
-// 메인 목록 그리기: POSTS 배열을 한 줄씩 목록으로 바꿈
+// 목록 그리기
 function renderList() {
+  if (!POSTS.length) {
+    $("list").innerHTML = `<li class="example-note">아직 올라온 글이 없어요.</li>`;
+    return;
+  }
   $("list").innerHTML = POSTS.map((p) => `
     <li>
-      <a class="row" href="#${p.id}">
-        <span class="date">${p.date}</span>
-        <span class="row-title">${p.title}</span>
-        <span class="tag ${TAGS[p.tag] || ""}">${p.tag}</span>
+      <a class="row" href="#${esc(p.id)}">
+        <span class="date">${esc(p.date)}</span>
+        <span class="row-title">${esc(p.title)}</span>
+        <span class="tag ${TAGS[p.tag] || ""}">${esc(p.tag)}</span>
       </a>
     </li>`).join("");
 }
 
-// 글 화면 그리기: 앞부분은 그대로, 뒷부분은 흐리게
-function renderPost(p) {
+// 글 화면 그리기: 로그인했으면 본문을 받아오고, 아니면 잠금 표시
+async function renderPost(p) {
   $("postTag").textContent = p.tag;
   $("postTag").className = "tag " + (TAGS[p.tag] || "");
   $("postTitle").textContent = p.title;
   $("postDate").textContent = p.date;
   $("postPreview").innerHTML = paragraphs(p.preview);
-  $("postLocked").innerHTML = paragraphs(p.locked);
+
+  $("postFull").hidden = true;
+  $("lockArea").hidden = false;
+  if (!user) return;
+
+  const { data, error } = await db.from("post_bodies").select("body").eq("post_id", p.id).maybeSingle();
+  if (error || !data) { toast("본문을 불러오지 못했어요. 새로고침해 주세요."); return; }
+  $("postFull").innerHTML = paragraphs(data.body);
+  $("postFull").hidden = false;
+  $("lockArea").hidden = true;
 }
 
 // 주소 끝(#글id)을 보고 목록/글 화면 중 무엇을 보여줄지 결정
@@ -381,22 +339,71 @@ function route() {
   window.scrollTo(0, 0);
 }
 
-// 로그인 버튼: 지금은 안내만. 3단계에서 진짜 구글 로그인으로 교체
+// 오른쪽 위 버튼: 로그인 상태에 따라 글자 바꾸기
+function renderAuth() {
+  $("authBtn").textContent = user ? "로그아웃" : "로그인";
+}
+
+// 구글 로그인: 지금 보던 글을 기억해 두고 구글로 이동
+async function login() {
+  try { sessionStorage.setItem("returnTo", location.hash); } catch (e) {}
+  const { error } = await db.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: location.origin + location.pathname }
+  });
+  if (error) toast("로그인 창을 열지 못했어요. 잠시 뒤 다시 눌러 주세요.");
+}
+
+async function logout() {
+  await db.auth.signOut();
+  toast("로그아웃했어요.");
+}
+
 let toastTimer;
-function notReadyYet() {
+function toast(msg) {
   const t = $("toast");
-  t.textContent = "아직 연결 전이에요. 3단계에서 진짜 구글 로그인이 붙어요.";
+  t.textContent = msg;
   t.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
 }
 
-$("brand").textContent = SITE.name;
-$("headline").textContent = SITE.headline;
-$("subline").textContent = SITE.subline;
-$("loginTop").addEventListener("click", notReadyYet);
-$("loginGate").addEventListener("click", notReadyYet);
-window.addEventListener("hashchange", route);
-renderList();
-route();
+async function start() {
+  $("brand").textContent = SITE.name;
+  $("headline").textContent = SITE.headline;
+  $("subline").textContent = SITE.subline;
+  $("authBtn").addEventListener("click", () => (user ? logout() : login()));
+  $("loginGate").addEventListener("click", login);
+  window.addEventListener("hashchange", route);
+
+  // 로그인 상태가 바뀔 때마다 화면 다시 그리기
+  db.auth.onAuthStateChange((_event, session) => {
+    user = session?.user ?? null;
+    renderAuth();
+    if (!$("post").hidden) route();
+  });
+
+  // 구글에서 돌아왔으면 주소창 정리 + 보던 글로 복귀
+  const { data } = await db.auth.getSession();
+  user = data.session?.user ?? null;
+  renderAuth();
+  if (location.search.includes("code=")) {
+    let back = "";
+    try { back = sessionStorage.getItem("returnTo") || ""; sessionStorage.removeItem("returnTo"); } catch (e) {}
+    history.replaceState(null, "", location.pathname + back);
+    if (user) toast("로그인했어요. 이제 끝까지 읽을 수 있어요.");
+  }
+
+  // 글 목록 불러오기 (누구나 읽을 수 있는 posts 표)
+  const res = await db.from("posts").select("id,date,tag,title,preview").order("date", { ascending: false });
+  if (res.error) {
+    $("list").innerHTML = `<li class="example-note">글을 불러오지 못했어요. 새로고침해 주세요.</li>`;
+    return;
+  }
+  POSTS = res.data;
+  renderList();
+  route();
+}
+
+start();
 </script>
